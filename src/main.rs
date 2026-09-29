@@ -1,4 +1,5 @@
 pub(crate) mod llm;
+pub(crate) mod memory;
 
 use async_openai::types::chat::{CreateChatCompletionRequest, CreateChatCompletionResponse};
 use async_openai::Client;
