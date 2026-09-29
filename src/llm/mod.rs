@@ -1,6 +1,11 @@
 use std::pin::Pin;
 use futures::Stream;
 
+// Result<ChatStreamEvent, LlmError> : result的类型要么是ChatStreamEvent，要么是LlmError
+// Stream<Item = Result<ChatStreamEvent, LlmError>> : Iterator的类型是Result<ChatStreamEvent, LlmError>，也就是Stream的Item类型
+// Stream<Item = Result<ChatStreamEvent, LlmError>> + Send : 线程安全
+// Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send> : box装堆，由于里面类型是动态的需要加载到堆上
+// Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>> : Pin是为了防止移动，保证指针的稳定性，讨论rust中异步流传递都需要Pin
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>>;
 
 
