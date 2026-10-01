@@ -1,3 +1,5 @@
+pub mod client;
+
 use std::pin::Pin;
 use futures::Stream;
 
