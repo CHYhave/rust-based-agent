@@ -18,7 +18,7 @@ impl Slot {
 }
 
 impl ToolCallAccumulator {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ToolCallAccumulator { slots: BTreeMap::new()}
     }
 

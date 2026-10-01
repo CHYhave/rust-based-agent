@@ -3,7 +3,7 @@ pub(crate) mod memory;
 pub(crate) mod tools;
 pub(crate) mod skill;
 pub(crate) mod config;
-
+pub mod agent;
 
 use async_openai::types::chat::{CreateChatCompletionRequest, CreateChatCompletionResponse};
 use async_openai::Client;

@@ -1,6 +1,4 @@
-use async_openai::types::chat::{ChatCompletionRequestMessage,
-    ChatCompletionRequestUserMessage,
-    ChatCompletionRequestUserMessageContent,
+use async_openai::types::chat::{ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage, ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage, ChatCompletionRequestToolMessage, ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
 };
 use async_trait::async_trait;
 
@@ -46,16 +44,33 @@ impl Default for InMemoryMemory {
     }
 }
 
+pub fn user_msg(s: &str) -> ChatCompletionRequestMessage {
+    ChatCompletionRequestUserMessage::from(
+        ChatCompletionRequestUserMessageContent::Text(s.to_string()),
+    ).into()
+}
+
+pub fn assistant_msg(
+    s: &str,
+    tool_calls: Option<Vec<ChatCompletionMessageToolCalls>>,
+) -> ChatCompletionRequestMessage {
+    ChatCompletionRequestAssistantMessage {
+        content: Some(ChatCompletionRequestAssistantMessageContent::Text(s.to_string())),
+        tool_calls,
+        ..Default::default()
+    }.into()
+}
+
+pub fn tool_msg(s: &str, tool_call_id: &str) -> ChatCompletionRequestMessage {
+    ChatCompletionRequestToolMessage {
+        content: ChatCompletionRequestToolMessageContent::Text(s.to_string()),
+        tool_call_id: tool_call_id.to_string(),
+    }.into()
+}
 
 #[cfg(test)]
 mod test {
     use super::*;
-
-    fn user_msg(s: &str) -> ChatCompletionRequestMessage {
-        ChatCompletionRequestUserMessage::from(
-            ChatCompletionRequestUserMessageContent::Text(s.to_string()),
-        ).into()
-    }
 
     #[tokio::test]
     async fn add_and_messages() {

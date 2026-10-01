@@ -1,29 +1,38 @@
 use std::{collections::HashMap, sync::Arc};
+use async_openai::types::chat::{ChatCompletionTool, FunctionObject};
+
 use crate::tools::Tool;
 
-struct ToolRegistry {
+pub struct ToolRegistry {
     tools: std::collections::HashMap<String, Arc<dyn Tool>>,
 }
 
 impl ToolRegistry {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ToolRegistry { tools: HashMap::new() }
     }
 
-    fn register(&mut self, tool: Arc<dyn Tool>) {
+    pub fn register(&mut self, tool: Arc<dyn Tool>) {
         self.tools.insert(tool.name().to_string(), tool);
     }
 
-    fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+    pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
     }
 
-    fn schemas(&self) -> Vec<serde_json::Value> {
+    pub fn schemas(&self) -> Vec<ChatCompletionTool> {
         self.tools.values().map(|tool| {
-            let mut schema = tool.parameters_schema();
-            schema["name"] = serde_json::Value::String(tool.name().to_string());
-            schema["description"] = serde_json::Value::String(tool.description().to_string());
-            schema
+            // let mut schema = tool.parameters_schema();
+            // schema["name"] = serde_json::Value::String(tool.name().to_string());
+            // schema["description"] = serde_json::Value::String(tool.description().to_string());
+            // schema
+            let function = FunctionObject {
+                name: tool.name().to_string(),
+                description: Some(tool.description().to_string()),
+                parameters: tool.parameters_schema().into(),
+                strict: Some(true),
+            };
+            ChatCompletionTool { function: function }
         }).collect()
     }
 }
@@ -70,6 +79,6 @@ mod test {
         reg.register(Arc::new(FakeTool));
         let schemas = reg.schemas();
         assert_eq!(schemas.len(), 1);
-        assert_eq!(schemas[0]["name"], "fake");
+        assert_eq!(schemas[0].function.name, "fake");
     }
 }
