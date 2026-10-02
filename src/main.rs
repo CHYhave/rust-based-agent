@@ -23,13 +23,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     for skill_meta in skill_metas {
         skill_description.push_str(&format!("- {}: {}\n", skill_meta.name, skill_meta.description));
     }
-    let system_promt = format!("
+    let system_prompt = format!("
     你是终端智能体。可用技能：
     {skill_description}
     当任务适配某个技能时，先用 load_skill 工具加载完整指令并严格遵循。
     ");
     let memory = InMemoryMemory::new();
-    memory.add(crate::memory::memory::system_msg(&system_promt)).await;
+    memory.add(crate::memory::memory::system_msg(&system_prompt)).await;
     let mut tool_registry = ToolRegistry::new();
     tool_registry.register(Arc::new(crate::tools::calculator::Calculator{}));
     tool_registry.register(Arc::new(crate::tools::get_time::GetTimeTool{}));
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     let llm = OpenAiClient::new();
 
-    let agent = Agent::new(Arc::new(llm), Arc::new(memory), tool_registry);
+    let agent = Agent::new(Arc::new(llm), Arc::new(memory), tool_registry, system_prompt);
 
     let stdin = io::stdin();
     let mut handle = stdin.lock();

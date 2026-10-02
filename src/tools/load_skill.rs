@@ -40,7 +40,7 @@ impl Tool for LoadSkillTool {
         let v: serde_json::Value = 
             serde_json::from_str(arguments).map_err(|e| e.to_string())?;
         let name = v["name"].as_str().ok_or("缺少 name 参数".to_string())?;
-        if (!self.skills.contains_key(name)) {
+        if !self.skills.contains_key(name) {
             return Err("技能不存在".to_string());
         }
         let body = self.skills.get(name).unwrap();

@@ -1,150 +1,89 @@
-use std::sync::Arc;
+pub mod react;
+// pub mod reflect;
+// pub mod plan;
 
-use async_trait::async_trait;
-use crate::skill::accumulator::ToolCallAccumulator;
-use crate::tools::registry::ToolRegistry;
-use crate::memory::memory::{Memory, assistant_msg, tool_msg, user_msg};
+#[cfg(test)]
+pub (crate) mod mock;
+
+
+use std::sync::Arc;
+use crate::llm::LlmError;
 use crate::llm::client::LlmClient;
-use crate::llm::{ChatStream, ChatStreamEvent, LlmError};
-use async_openai::types::chat::{ChatCompletionMessageToolCalls, ChatCompletionRequestMessage, ChatCompletionTool};
-use futures::StreamExt;
+use crate::memory::memory::{Memory, user_msg};
+use crate::tools::registry::ToolRegistry;
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    ReAct,
+    Reflect,
+    PlanSolve,
+}
 
 pub struct Agent {
-    llm: Arc<dyn LlmClient>,
-    memory: Arc<dyn Memory>,
-    tools: ToolRegistry,
-    max_iterations: usize,
+    pub(crate) llm: Arc<dyn LlmClient>,
+    pub(crate) memory: Arc<dyn Memory>,
+    pub(crate) tools: ToolRegistry,
+    pub(crate) max_iterations: usize,
+    pub(crate) max_reflections: usize,
+    pub(crate) mode: Mode,
+    pub(crate) verbose: bool,
+    pub(crate) system_prompt: String,
 }
 
 impl Agent {
-    pub fn new(llm: Arc<dyn LlmClient>, memory: Arc<dyn Memory>, tools: ToolRegistry) -> Self {
+    pub fn new(
+        llm: Arc<dyn LlmClient>,
+        memory: Arc<dyn Memory>,
+        tools: ToolRegistry, 
+        system_prompt: String
+    ) -> Self {
         // max_iterations 默认 8
         Self {
             llm,
             memory,
             tools,
             max_iterations: 8,
+            max_reflections: 3,
+            mode: Mode::ReAct,
+            verbose: false,
+            system_prompt,
         }
     }
 
-    pub async fn ask(&self, input: &str) -> Result<String, LlmError> { 
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+    }
+
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    pub fn set_verbose(&mut self, on: bool) {
+        self.verbose = on;
+    }
+
+    pub fn verbose(&self) -> bool {
+        self.verbose
+    }
+
+    pub async fn ask(&self, input: &str) -> Result<String, LlmError> {
         self.memory.add(user_msg(input)).await;
-        let schema = self.tools.schemas();
-        for _ in 0..self.max_iterations {
-            let mut stream = self.llm.chat(self.memory.messages().await, schema.clone()).await?;
-            let mut text = String::new();
-            let mut acc = ToolCallAccumulator::new();
-            while let Some(event) = stream.next().await {
-                let event = event?;
-                match event {
-                    ChatStreamEvent::Content(d) => {
-                        print!("{d}");
-                        flush_stdout();
-                        text.push_str(&d);
-                    }
-                    ChatStreamEvent::ToolCallDelta {index, id, name, args}  => {
-                        acc.feed(index, id, name, Some(&args));
-                    }
-                    ChatStreamEvent::Done => break,
-                }
-            }
-            let tool_calls = acc.into_tool_calls();
-            if tool_calls.is_empty() {
-                // 纯文本回复：assistant 消息入 memory，换行收尾，返回
-                self.memory.add(assistant_msg(&text, None)).await;
-                println!();
-                return Ok(text);
-            }
-
-            // 有工具调用：先执行，收集结果消息
-            // 注意 history 顺序必须是 assistant(带 tool_calls) 在前、tool 消息在后，
-            // 所以等执行完再一起存
-            let mut tool_msgs = Vec::new();
-            for call in &tool_calls {
-                let ChatCompletionMessageToolCalls::Function(fc) = call else { continue };
-                let result = match self.tools.get(&fc.function.name) {
-                    Some(tool) => tool.call(&fc.function.arguments).await,
-                    None => Err(format!("工具未找到: {}", fc.function.name)),
-                };
-                // Ok 和 Err 都回传给模型，让它有机会自我纠正
-                let content = result.unwrap_or_else(|e| format!("执行出错: {e}"));
-                tool_msgs.push(tool_msg(&content, &fc.id));
-            }
-
-            self.memory.add(assistant_msg(&text, Some(tool_calls))).await;
-            for m in tool_msgs {
-                self.memory.add(m).await;
-            }
-            // 工具结果已入 memory，进入下一轮迭代
-        }
-        Err(LlmError::MaxIterations(self.max_iterations))
+        self.react_loop(&self.memory, false).await
     }
 }
-
-fn flush_stdout() {
-    use std::io::Write;
-    std::io::stdout().flush().expect("flush stdout");
-}
-
 
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::collections::VecDeque;
-    use std::sync::Mutex;
 
+    use crate::agent::mock::{MockLlm, content_events, tool_call_script};
+    use crate::llm::ChatStreamEvent;
     use crate::memory::memory::InMemoryMemory;
     use crate::tools::calculator::Calculator;
-    use async_openai::types::chat::ChatCompletionRequestToolMessageContent;
+    use async_openai::types::chat::{ChatCompletionRequestMessage, ChatCompletionRequestToolMessageContent};
 
-    struct MockLlm {
-        scripts: Mutex<VecDeque<Vec<ChatStreamEvent>>>,
-    }
-
-    impl MockLlm {
-        fn new(scripts: Vec<Vec<ChatStreamEvent>>) -> Self {
-            Self {
-                scripts: Mutex::new(scripts.into_iter().collect()),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl LlmClient for MockLlm {
-        async fn chat(
-            &self,
-            _messages: Vec<ChatCompletionRequestMessage>,
-            _tools: Vec<ChatCompletionTool>,
-        ) -> Result<ChatStream, LlmError> {
-            let script = self.scripts.lock().unwrap()
-                            .pop_front()
-                            .unwrap();
-            Ok(Box::pin(futures::stream::iter(
-                script.into_iter().map(Ok)
-            )))
-        }
-    }
-
-    fn content_events(s: &str) -> Vec<ChatStreamEvent> {
-        vec![
-            ChatStreamEvent::Content(s.to_string()),
-            ChatStreamEvent::Done
-        ]
-    }
-
-    /// 一轮"调用 calculator"的模型脚本
-    fn tool_call_script() -> Vec<ChatStreamEvent> {
-        vec![
-            ChatStreamEvent::ToolCallDelta {
-                index: 0,
-                id: Some("call_1".into()),
-                name: Some("calculator".into()),
-                args: r#"{"expression":"1+2"}"#.into(),
-            },
-            ChatStreamEvent::Done,
-        ]
-    }
 
     /// 组装一个注册了 calculator 的 Agent，返回 agent 和可供检查的 memory
     fn make_agent(scripts: Vec<Vec<ChatStreamEvent>>) -> (Agent, Arc<dyn Memory>) {
@@ -152,7 +91,10 @@ mod test {
         let memory: Arc<dyn Memory> = Arc::new(InMemoryMemory::new());
         let mut tools = ToolRegistry::new();
         tools.register(Arc::new(Calculator {}));
-        (Agent::new(llm, memory.clone(), tools), memory)
+        (
+            Agent::new(llm, memory.clone(), tools, "you are helpful assistant".to_string()),
+            memory,
+        )
     }
 
     #[tokio::test]
