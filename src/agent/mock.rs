@@ -34,7 +34,7 @@ impl LlmClient for MockLlm {
 }
 
 pub(crate) fn content_events(s: &str) -> Vec<ChatStreamEvent> { 
-            vec![
+        vec![
             ChatStreamEvent::Content(s.to_string()),
             ChatStreamEvent::Done
         ]

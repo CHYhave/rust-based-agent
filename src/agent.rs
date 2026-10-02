@@ -84,9 +84,7 @@ impl Agent {
         messages: Vec<ChatCompletionRequestMessage>,
         prefix: &str,
     ) -> Result<String, LlmError> {
-        if self.verbose {
-            println!("{prefix}");
-        }
+        let mut prefix_printed = false;
         let mut stream = self.llm.chat(messages, vec![]).await?;
         let mut text = String::new();
         while let Some(event) = stream.next().await {
@@ -94,6 +92,10 @@ impl Agent {
             match event {
                 ChatStreamEvent::Content(d) => {
                     if self.verbose {
+                        if !prefix_printed {
+                            println!("{prefix}");
+                            prefix_printed = true;
+                        }
                         print!("{d}");
                         flush_stdout();
                     }
