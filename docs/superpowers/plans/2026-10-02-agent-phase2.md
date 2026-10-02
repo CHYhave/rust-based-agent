@@ -47,6 +47,20 @@ src/
 
 本任务是**纯重构**：不新增行为，所有现有测试必须保持绿。
 
+**旧 `src/agent.rs` 内容的归属对照表（先看清楚再动手）：**
+
+| 旧文件内容 | 新位置 | 步骤 |
+|---|---|---|
+| `Agent` 结构体 | `agent.rs`（重写，加 5 个新字段） | Step 1 |
+| `Agent::new` | `agent.rs`（加第四参 `system_prompt`） | Step 1 |
+| `ask` 的**循环体**（for 循环全部内容） | `react.rs`，改造为 `react_loop(memory, quiet)` | Step 3 |
+| `flush_stdout` | `react.rs` | Step 3 |
+| 三个测试 + `make_agent` | `react.rs` 底部测试模块 | Step 4 |
+| `MockLlm` / `content_events` / `tool_call_script` | `mock.rs` | Step 2 |
+| **`ask` 外壳**（加 user 消息 + 调用循环这两行） | **`agent.rs`——不要带进 react.rs** | Step 5 |
+
+⚠️ 最容易放错的就是 `ask` 外壳：它留在 `agent.rs`。react.rs 里**只有** `react_loop`、`flush_stdout` 和测试，没有 `ask`。
+
 - [ ] **Step 1: agent.rs — 重写为模块根（声明子模块 + Agent 结构体与新字段）**
 
 ```rust
@@ -186,9 +200,9 @@ fn make_agent(scripts: Vec<Vec<ChatStreamEvent>>) -> (Agent, Arc<dyn Memory>) {
 
 注意：`ChatStreamEvent` / `ToolRegistry` 等类型需要在 react.rs 测试模块里自行 `use`（原来靠 `super::*` 带进来的不再免费）。
 
-- [ ] **Step 5: ask 临时桥接 + main.rs 修调用**
+- [ ] **Step 5: ask 临时桥接（写在 agent.rs）+ main.rs 修调用**
 
-`agent.rs` 中（Task 2 会替换成分发；`user_msg` 需 `use crate::memory::memory::user_msg;`）：
+以下代码写在 **`agent.rs`**（模块根，和结构体同一个文件；如果拆分时误放进了 react.rs，现在挪过来）：
 
 ```rust
 impl Agent {
