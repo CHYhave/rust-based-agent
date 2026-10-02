@@ -69,7 +69,11 @@ impl Agent {
 
     pub async fn ask(&self, input: &str) -> Result<String, LlmError> {
         self.memory.add(user_msg(input)).await;
-        self.react_loop(&self.memory, false).await
+        match self.mode {
+            Mode::ReAct => self.react_loop(&self.memory, false).await,
+            Mode::Reflect => unimplemented!("Reflect 模式尚未实现"),
+            Mode::PlanSolve => unimplemented!("PlanSolve 模式尚未实现"),
+        }
     }
 }
 
@@ -158,5 +162,28 @@ mod test {
             LlmError::MaxIterations(n) => assert_eq!(n, 8),
             other => panic!("期待 MaxIterations(8)，实际: {other:?}"),
         }
+    }
+
+    fn bare_agent(scripts: Vec<Vec<ChatStreamEvent>>) -> Agent {
+        let llm: Arc<dyn LlmClient> = Arc::new(MockLlm::new(scripts));
+        let memory: Arc<dyn Memory> = Arc::new(InMemoryMemory::new());
+        let tools = ToolRegistry::new();
+        Agent::new(llm, memory, tools, "you are helpful assistant".to_string())
+    }
+
+    #[test]
+    fn default_mode_is_react() {
+        let agent = bare_agent(vec![]);
+        assert_eq!(agent.mode(), Mode::ReAct);
+        assert!(!agent.verbose());
+    }
+
+    #[test]
+    fn set_mode_and_verbose() {
+        let mut agent = bare_agent(vec![]);
+        agent.set_mode(Mode::Reflect);
+        assert_eq!(agent.mode(), Mode::Reflect);
+        agent.set_verbose(true);
+        assert!(agent.verbose());
     }
 }
