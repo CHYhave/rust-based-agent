@@ -38,7 +38,7 @@ impl Agent {
                 let event = event?;
                 match event {
                     ChatStreamEvent::Content(d) => {
-                        println!("{d}");
+                        print!("{d}");
                         flush_stdout();
                         text.push_str(&d);
                     }
