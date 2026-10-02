@@ -1,4 +1,4 @@
-use async_openai::types::chat::{ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage, ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage, ChatCompletionRequestToolMessage, ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
+use async_openai::types::chat::{ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessage, ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage, ChatCompletionRequestSystemMessageContent, ChatCompletionRequestToolMessage, ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
 };
 use async_trait::async_trait;
 
@@ -58,6 +58,16 @@ pub fn assistant_msg(
         content: Some(ChatCompletionRequestAssistantMessageContent::Text(s.to_string())),
         tool_calls,
         ..Default::default()
+    }.into()
+}
+
+
+pub fn system_msg(
+    s: &str
+) -> ChatCompletionRequestMessage {
+    ChatCompletionRequestSystemMessage {
+        content: ChatCompletionRequestSystemMessageContent::Text(s.to_string()).into(),
+        name: None,
     }.into()
 }
 

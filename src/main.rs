@@ -5,39 +5,63 @@ pub(crate) mod skill;
 pub(crate) mod config;
 pub mod agent;
 
-use async_openai::types::chat::{CreateChatCompletionRequest, CreateChatCompletionResponse};
-use async_openai::Client;
-use serde_json::json;
 use std::error::Error;
+use std::io::{self, BufRead, Write};
+use std::path::Path;
+use std::sync::Arc;
+
+use crate::agent::Agent;
+use crate::llm::client::OpenAiClient;
+use crate::memory::memory::{InMemoryMemory, Memory};
+use crate::skill::discovery::discover_skills;
+use crate::tools::registry::ToolRegistry;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let client = Client::new();
-    let request = json!({
-        "messages":[
-            {
-                "role": "user",
-                "content": "Hello, how are you?"
-            }
-        ],
-        "model": "deepseek-flash",
-        "store": false
-    });
+    let (skill_metas, skill_detail) = discover_skills(Path::new("skills"));
+    let mut skill_description = String::new();
+    for skill_meta in skill_metas {
+        skill_description.push_str(&format!("- {}: {}\n", skill_meta.name, skill_meta.description));
+    }
+    let system_promt = format!("
+    你是终端智能体。可用技能：
+    {skill_description}
+    当任务适配某个技能时，先用 load_skill 工具加载完整指令并严格遵循。
+    ");
+    let memory = InMemoryMemory::new();
+    memory.add(crate::memory::memory::system_msg(&system_promt)).await;
+    let mut tool_registry = ToolRegistry::new();
+    tool_registry.register(Arc::new(crate::tools::calculator::Calculator{}));
+    tool_registry.register(Arc::new(crate::tools::get_time::GetTimeTool{}));
+    tool_registry.register(Arc::new(crate::tools::load_skill::LoadSkillTool::new(Arc::new(skill_detail))));
+    
+    let llm = OpenAiClient::new();
 
-    // json! 构造的 Value 先反序列化成强类型请求
-    let request: CreateChatCompletionRequest = serde_json::from_value(request)?;
-    let response: CreateChatCompletionResponse = client.chat().create(request).await?;
+    let agent = Agent::new(Arc::new(llm), Arc::new(memory), tool_registry);
 
-    // 字段都是 pub 的，直接点出来即可
-    let content = response.choices[0]
-        .message
-        .content
-        .as_deref()
-        .unwrap_or("（模型没有返回文本）");
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    loop {
+        print!("> ");
+        io::stdout().flush()?;
 
-    println!("id: {}", response.id);
-    println!("model: {}", response.model);
-    println!("finish_reason: {:?}", response.choices[0].finish_reason);
-    println!("content: {content}");
+        let mut input = String::new();
+        if handle.read_line(&mut input)? == 0 {
+            break; // EOF
+        }
+        let input = input.trim();
+        if input == "exit" {
+            break;
+        }
+        if input.is_empty() {
+            continue;
+        }
+
+        // Ok 时回复已在流式输出中打印；Err 打印到 stderr 后继续对话
+        if let Err(e) = agent.ask(input).await {
+            eprintln!("出错: {e}");
+        }
+    }
+
     Ok(())
 }

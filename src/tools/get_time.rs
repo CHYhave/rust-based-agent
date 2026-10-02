@@ -2,12 +2,12 @@ use crate::tools::Tool;
 use async_trait::async_trait;
 use serde_json::json;
 
-pub struct GetTime {}
+pub struct GetTimeTool {}
 
 
 
 #[async_trait]
-impl Tool for GetTime {
+impl Tool for GetTimeTool {
     fn name(&self) -> &str {
         "get_time"
     }
@@ -30,7 +30,7 @@ impl Tool for GetTime {
 
 #[tokio::test]
 async fn return_time() {
-    let t = GetTime{};
+    let t = GetTimeTool{};
     let out = t.call("{}").await.unwrap();
     assert!(!out.is_empty());
 }
