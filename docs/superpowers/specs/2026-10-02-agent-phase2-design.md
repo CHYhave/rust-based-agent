@@ -37,8 +37,8 @@
 
 ```
 src/
+├── agent.rs          # 模块根：Agent 结构体、Mode 枚举、ask() 分发、chat_once() 辅助
 ├── agent/
-│   ├── mod.rs        # Agent 结构体、Mode 枚举、ask() 分发、chat_once() 辅助
 │   ├── react.rs      # ReAct 循环（从现 agent.rs 搬移，参数化 memory 与 quiet）
 │   ├── reflect.rs    # Reflection 范式
 │   └── plan.rs       # Plan-and-Solve 范式（含 parse_plan 纯函数）
@@ -47,7 +47,9 @@ src/
 └── （config / llm / memory / skill / tools 不动）
 ```
 
-### 核心类型（agent/mod.rs）
+（采用 Rust 2018+ 无 mod.rs 模块风格：`agent.rs` 作模块根 + `agent/` 存子模块，全仓统一。）
+
+### 核心类型（agent.rs，模块根）
 
 ```rust
 pub enum Mode { ReAct, Reflect, PlanSolve }

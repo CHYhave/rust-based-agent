@@ -6,7 +6,7 @@
 
 **目标：** 在第一期 ReAct Agent 上新增两个经典范式——Reflection（执行→反思→优化）与 Plan-and-Solve（规划→逐步执行），REPL 斜杠命令切换模式与 verbose，中间过程可控可见。
 
-**架构：** `agent.rs` 拆为 `agent/` 目录（mod/react/reflect/plan + 测试 mock）；`Mode` 枚举 + `ask` 分发；共享 memory 只存 user + 最终答复，中间过程走草稿 memory；REPL 抽到 `repl.rs`，斜杠命令解析为纯函数。
+**架构：** `agent.rs` 变为模块根 + `agent/` 子目录（react/reflect/plan/mock，无 mod.rs 新风格）；`Mode` 枚举 + `ask` 分发；共享 memory 只存 user + 最终答复，中间过程走草稿 memory；REPL 抽到 `repl.rs`，斜杠命令解析为纯函数。
 
 **对应设计文档：** `docs/superpowers/specs/2026-10-02-agent-phase2-design.md`
 
@@ -27,27 +27,27 @@
 src/
 ├── main.rs            # Task 8：瘦身，只剩组装
 ├── repl.rs            # Task 7：REPL 循环 + 斜杠命令解析
+├── agent.rs           # Task 1-3：Agent、Mode、ask 分发、chat_once（模块根，无 mod.rs）
 ├── agent/
-│   ├── mod.rs         # Task 1-3：Agent、Mode、ask 分发、chat_once
 │   ├── react.rs       # Task 1：ReAct 循环（参数化 memory/quiet）+ 第一期测试搬入
 │   ├── mock.rs        # Task 1：MockLlm（#[cfg(test)]）
 │   ├── reflect.rs     # Task 4：Reflection 范式
 │   └── plan.rs        # Task 5-6：parse_plan + Plan-and-Solve 范式
-└── （config / llm / memory / skill / tools 不动）
+└── （config / llm / memory / skill / tools 不动，已切换为无 mod.rs 风格）
 ```
 
 ---
 
-## Task 1: agent.rs → agent/ 目录拆分 + react_loop 参数化
+## Task 1: agent.rs 变为模块根 + react_loop 参数化
 
 **Files:**
-- Delete: `src/agent.rs`
-- Create: `src/agent/mod.rs`、`src/agent/react.rs`、`src/agent/mock.rs`
+- Modify: `src/agent.rs`（重写为模块根：声明子模块 + Agent 结构体 + ask/chat_once）
+- Create: `src/agent/react.rs`、`src/agent/mock.rs`、`src/agent/reflect.rs`（空占位）、`src/agent/plan.rs`（空占位）
 - Modify: `src/main.rs`（Agent::new 调用加参数）
 
 本任务是**纯重构**：不新增行为，所有现有测试必须保持绿。
 
-- [ ] **Step 1: agent/mod.rs — Agent 结构体与新字段**
+- [ ] **Step 1: agent.rs — 重写为模块根（声明子模块 + Agent 结构体与新字段）**
 
 ```rust
 pub mod react;
@@ -110,7 +110,7 @@ impl Agent {
 
 注意：字段改为 `pub(crate)` 是为了让子模块（react/reflect/plan）的 `impl Agent` 和测试能访问。
 
-另外：mod.rs 现在就声明了 `pub mod reflect; pub mod plan;`，但这两个文件要到 Task 4/5 才有内容——本任务先**各建一个空文件**占位，否则编译不过。
+另外：agent.rs 现在就声明了 `pub mod reflect; pub mod plan;`，但这两个文件要到 Task 4/5 才有内容——本任务先**各建一个空文件**占位，否则编译不过。子模块中的 `impl Agent` 块顶部需要 `use crate::agent::Agent;`（此时 `super` 就是 `crate::agent`，两者等价）。
 
 - [ ] **Step 2: agent/mock.rs — 搬移 MockLlm（照抄现有代码，改 pub）**
 
@@ -188,7 +188,7 @@ fn make_agent(scripts: Vec<Vec<ChatStreamEvent>>) -> (Agent, Arc<dyn Memory>) {
 
 - [ ] **Step 5: ask 临时桥接 + main.rs 修调用**
 
-`agent/mod.rs` 中（Task 2 会替换成分发；`user_msg` 需 `use crate::memory::memory::user_msg;`）：
+`agent.rs` 中（Task 2 会替换成分发；`user_msg` 需 `use crate::memory::memory::user_msg;`）：
 
 ```rust
 impl Agent {
@@ -210,7 +210,7 @@ impl Agent {
 ## Task 2: ask 分发 + Mode 切换
 
 **Files:**
-- Modify: `src/agent/mod.rs`
+- Modify: `src/agent.rs`
 
 - [ ] **Step 1: 写测试（mod.rs 底部 `#[cfg(test)] mod tests`）**
 
@@ -267,7 +267,7 @@ pub async fn ask(&self, input: &str) -> Result<String, LlmError> {
 ## Task 3: chat_once — 一次性静默调用
 
 **Files:**
-- Modify: `src/agent/mod.rs`
+- Modify: `src/agent.rs`
 
 - [ ] **Step 1: 写测试（mod.rs 测试模块追加）**
 
