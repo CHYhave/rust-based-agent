@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::agent::Agent;
+use crate::agent::{Agent, flush_stdout};
 use crate::skill::accumulator::ToolCallAccumulator;
 use crate::memory::memory::{Memory, assistant_msg, tool_msg};
 use crate::llm::{ ChatStreamEvent, LlmError};
@@ -17,7 +17,7 @@ impl Agent {
         for _ in 0..self.max_iterations {
             let mut stream = self.llm.chat(memory.messages().await, schema.clone()).await?;
             let mut text = String::new();
-            let mut acc = ToolCallAccumulator::new();
+            let mut acc: ToolCallAccumulator = ToolCallAccumulator::new();
             while let Some(event) = stream.next().await {
                 let event = event?;
                 match event {
@@ -67,7 +67,3 @@ impl Agent {
     }
 }
 
-fn flush_stdout() {
-    use std::io::Write;
-    std::io::stdout().flush().expect("flush stdout");
-}

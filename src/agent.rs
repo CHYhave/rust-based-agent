@@ -7,7 +7,10 @@ pub (crate) mod mock;
 
 
 use std::sync::Arc;
-use crate::llm::LlmError;
+use async_openai::types::chat::ChatCompletionRequestMessage;
+use futures::StreamExt;
+
+use crate::llm::{ChatStreamEvent, LlmError};
 use crate::llm::client::LlmClient;
 use crate::memory::memory::{Memory, user_msg};
 use crate::tools::registry::ToolRegistry;
@@ -75,6 +78,38 @@ impl Agent {
             Mode::PlanSolve => unimplemented!("PlanSolve 模式尚未实现"),
         }
     }
+
+    async fn chat_once(
+        &self,
+        messages: Vec<ChatCompletionRequestMessage>,
+        prefix: &str,
+    ) -> Result<String, LlmError> {
+        if self.verbose {
+            println!("{prefix}");
+        }
+        let mut stream = self.llm.chat(messages, vec![]).await?;
+        let mut text = String::new();
+        while let Some(event) = stream.next().await {
+            let event = event?;
+            match event {
+                ChatStreamEvent::Content(d) => {
+                    if self.verbose {
+                        print!("{d}");
+                        flush_stdout();
+                    }
+                    text.push_str(&d);
+                }
+                ChatStreamEvent::ToolCallDelta { .. } => {}
+                ChatStreamEvent::Done => break,
+            }
+        }
+        Ok(text)
+    }
+}
+
+fn flush_stdout() {
+    use std::io::Write;
+    std::io::stdout().flush().expect("flush stdout");
 }
 
 
@@ -185,5 +220,27 @@ mod test {
         assert_eq!(agent.mode(), Mode::Reflect);
         agent.set_verbose(true);
         assert!(agent.verbose());
+    }
+
+    #[tokio::test]
+    async fn chat_once_collects_stream() {
+        let agent = bare_agent(vec![vec![
+            ChatStreamEvent::Content("你好".into()),
+            ChatStreamEvent::Content("世界".into()),
+            ChatStreamEvent::Done,
+        ]]);
+
+        let out = agent
+            .chat_once(vec![user_msg("打招呼")], "[测试] ")
+            .await
+            .unwrap();
+        assert_eq!(out, "你好世界");
+    }
+
+    #[tokio::test]
+    async fn chat_once_passes_empty_tools() {
+        let agent = bare_agent(vec![content_events("ok")]);
+        let out = agent.chat_once(vec![user_msg("x")], "").await.unwrap();
+        assert_eq!(out, "ok");
     }
 }
