@@ -74,7 +74,7 @@ impl Agent {
         match self.mode {
             Mode::ReAct => self.react_loop(&self.memory, false).await,
             Mode::Reflect => self.reflect_run(input).await,
-            Mode::PlanSolve => unimplemented!("PlanSolve 模式尚未实现"),
+            Mode::PlanSolve => self.plan_run(input).await,
         }
     }
 
