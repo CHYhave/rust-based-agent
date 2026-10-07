@@ -29,10 +29,10 @@
 ```
 src/
 ├── memory/
-│   ├── memory.rs        # Memory trait（+replace 默认实现）+ InMemoryMemory + 消息构造辅助（不动）
+│   ├── memory.rs        # Memory trait（+replace 默认实现）+ InMemoryMemory + 消息构造/渲染辅助
 │   └── file.rs          # FileMemory：JSONL 持久化
 ├── context.rs           # ContextStrategy trait + WindowStrategy + SummarizeStrategy
-├── retrieval.rs         # Retriever trait + KeywordRetriever + render_message + tokenize
+├── retrieval.rs         # Retriever trait + KeywordRetriever + tokenize
 ├── tools/
 │   └── search_memory.rs # search_memory 工具
 ├── agent.rs             # +context 字段、+strategy 切换、+compact()
@@ -47,8 +47,9 @@ src/
 启动：FileMemory::load(path) → 读 JSONL → 内存 Vec（无文件 = 空历史，不报错）
 
 每轮：ask(input) → memory.add(user)
-  → react_loop 每轮请求前：msgs = context.apply(&memory).await?
-      ├ Window    → [system] + 最近 N 条（纯视图，memory 不动）
+  → react_loop 每轮请求前：
+      msgs = [system_prompt] + context.apply(&memory).await?
+      ├ Window    → 末尾 N 条（纯视图，memory 不动）
       └ Summarize → 超阈值：LLM 摘要旧段 → memory.replace(就地压缩) → 返回全量
   → llm.chat(msgs, tools)
 
@@ -72,8 +73,17 @@ pub trait ContextStrategy: Send + Sync {
 }
 ```
 
-- `WindowStrategy { max_messages: usize }`（默认 30）：`[首条 system（若首条是 system 才保留）] + 末尾 N 条`。**不改 memory**——完整历史留在存储里，`search_memory` 仍能搜到被窗口截掉的内容
-- `SummarizeStrategy { llm, threshold_chars: usize, keep_recent: usize }`（默认 8000 字符 / 保留近 10 条）：超阈值时把 `[1 .. len-keep_recent]` 的旧消息发给 LLM 压缩成一条摘要消息，`memory.replace()` 就地重写。摘要是有损操作，这符合其语义
+- `WindowStrategy { max_messages: usize }`（默认 30）：取末尾 N 条。**不改 memory**——完整历史留在存储里，`search_memory` 仍能搜到被窗口截掉的内容
+- `SummarizeStrategy { llm, threshold_chars: usize, keep_recent: usize }`（默认 8000 字符 / 保留近 10 条）：超阈值时把 `[0 .. len-keep_recent]` 的旧消息发给 LLM 压缩成一条摘要消息，`memory.replace()` 就地重写为 `[摘要, 近期…]`。摘要是有损操作，这符合其语义
+
+### 关键设计：system prompt 不存入 memory
+
+持久化引入后，"启动时往 memory 加 system 消息"会导致历史文件累积重复系统消息、且加载后顺序错乱。统一规则：
+
+- **任何 memory（共享/草稿/文件）都不存 system 消息**
+- `react_loop` 每次请求时把 `system_prompt` prepend 到发送列表头部：`[system] + context.apply(memory)`
+- main 启动时不再 `memory.add(system_msg)`；reflect/plan 的草稿 memory 不再播种 system（去掉原有播种行）
+- `chat_once` 的调用方（评审/优化/规划提示词）显式传自己的 system 消息，不受影响
 
 `Memory` trait 新增（默认实现，FileMemory 靠 clear+add 自动正确）：
 
@@ -84,7 +94,7 @@ async fn replace(&self, messages: Vec<ChatCompletionRequestMessage>) {
 }
 ```
 
-`Agent::compact()` 供 `/compact` 调用：不看阈值，直接把共享 memory 压到 `keep_recent` 条（复用 SummarizeStrategy 的压缩逻辑——抽成该策略的 `pub(crate) async fn compact_memory(&self, memory)`，`apply` 超阈值时也调它）。
+`Agent::compact()` 供 `/compact` 调用：不看阈值，直接对共享 memory 调 `summarize.compact_memory()`，返回 `(压缩前条数, 压缩后条数)` 供 REPL 打印。
 
 ## 组件契约
 
@@ -146,19 +156,18 @@ pub trait Retriever: Send + Sync {
 pub struct KeywordRetriever;   // 打分 = 查询项在文档中的出现次数（TF）
 ```
 
-分词器（中文无空格，混合策略）：
+分词器（中文无空格，混合策略：ASCII 词转小写；CJK 逐字单字 + 相邻二元组，保证单字查询也能命中）：
 
 ```rust
-/// ASCII 字母数字序列转小写为词；CJK 字符取二元组（bigram）
-/// 例："查 Rust 书籍" → ["rust", "查书", "书籍"] …（"查"+"Rust" 跨界不组 bigram）
+/// 例："ab 计算" → ["ab", "计", "算", "计算"]
 pub(crate) fn tokenize(text: &str) -> Vec<String>
 ```
 
-消息渲染（tool_calls 等无正文消息返回 None）：
+消息渲染放在 `memory/memory.rs`（它操作消息类型，与 user_msg 等辅助函数同处；context.rs 统计字符数也复用它）：
 
 ```rust
-pub(crate) fn render_message(msg: &ChatCompletionRequestMessage) -> Option<String>
-// 输出形如 "user: 帮我算 1+2" / "tool: 3"
+/// 提取消息的可读文本，如 "user: 帮我算 1+2"；无正文（如纯 tool_calls）返回 None
+pub fn render_message(msg: &ChatCompletionRequestMessage) -> Option<String>
 ```
 
 ### tools/search_memory.rs
