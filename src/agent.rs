@@ -1,10 +1,9 @@
 pub mod react;
-// pub mod reflect;
+pub mod reflect;
 // pub mod plan;
 
 #[cfg(test)]
 pub (crate) mod mock;
-
 
 use std::sync::Arc;
 use async_openai::types::chat::ChatCompletionRequestMessage;
@@ -74,7 +73,7 @@ impl Agent {
         self.memory.add(user_msg(input)).await;
         match self.mode {
             Mode::ReAct => self.react_loop(&self.memory, false).await,
-            Mode::Reflect => unimplemented!("Reflect 模式尚未实现"),
+            Mode::Reflect => self.reflect_run(input).await,
             Mode::PlanSolve => unimplemented!("PlanSolve 模式尚未实现"),
         }
     }
