@@ -1,6 +1,6 @@
 pub mod react;
 pub mod reflect;
-// pub mod plan;
+pub mod plan;
 
 #[cfg(test)]
 pub (crate) mod mock;
